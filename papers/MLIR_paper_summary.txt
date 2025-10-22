@@ -1,0 +1,694 @@
+**You:**
+
+2002.11054v2.pdf
+PDF
+What are the main advantages of MLIR
+
+* * *
+
+**ChatGPT:**
+
+The main advantages of MLIR (Multi-Level Intermediate Representation), as described in the paper “MLIR: A Compiler Infrastructure for the End of Moore’s Law” by Chris Lattner et al., can be summarized under several key design and practical strengths:
+
+🧩 1. Extensibility and Modularity
+
+MLIR was built to make it cheap and easy to define new abstraction levels. Instead of having a fixed IR (like LLVM IR or JVM bytecode), MLIR allows you to:
+
+Create custom dialects grouping domain-specific operations, types, and attributes.
+
+Mix multiple dialects together within a single program.
+
+Extend existing infrastructure with custom passes, types, and verification rules.
+
+This modularity makes it possible to unify frontends, mid-level optimizations, and backends for heterogeneous and domain-specific workloads without rewriting compiler infrastructure
+
+2002.11054v2
+
+2002.11054v2
+
+.
+
+⚙️ 2. Progressive Lowering Across Abstraction Levels
+
+Traditional compilers have rigid, fixed abstraction levels (e.g., AST → LLVM IR).
+MLIR instead supports progressive lowering — gradual translation through multiple flexible levels of abstraction:
+
+High-level graph or tensor operations can be lowered step by step into scalar machine instructions.
+
+Each level can retain or drop semantic structure as needed.
+
+This enables mixed-level optimization, where high-level constructs (e.g., tensor ops) and low-level constructs (e.g., loops) coexist in the same IR
+
+2002.11054v2
+
+.
+
+🧮 3. Reusability of Infrastructure and Passes
+
+MLIR provides “in-the-box” support for common compiler mechanisms—SSA data structures, pass management, verification, and pattern-based rewriting.
+This makes it easy to build compilers quickly and share components:
+
+Declarative rewrite patterns (DRR) and Operation Definition Syntax (ODS) let you define and transform ops without writing C++ boilerplate.
+
+Optimization Interfaces and Op Traits allow compiler passes (like inlining, DCE, or CSE) to operate across dialects generically
+
+2002.11054v2
+
+.
+
+🔄 4. Support for Heterogeneous and Parallel Compilation
+
+MLIR is designed for heterogeneous hardware—CPUs, GPUs, TPUs, FPGAs, etc.—and supports concurrent compilation:
+
+Each operation defines isolation boundaries enabling safe parallel pass execution.
+
+Dialects can model accelerator-specific or dataflow operations without rewriting core infrastructure.
+
+This flexibility helps unify multiple backends like TensorFlow XLA, nGraph, and CoreML within one system
+
+2002.11054v2
+
+.
+
+🧠 5. Retention of High-Level Semantics
+
+Unlike LLVM IR, which quickly loses source-level structure, MLIR:
+
+Retains higher-level semantics such as loop nests, tensor operations, or affine mappings until late in compilation.
+
+Facilitates high-level optimizations (e.g., polyhedral or tensor algebra optimizations) that would be impossible to reconstruct from low-level IR.
+
+Enables better debugging, verification, and traceability from high-level source to machine code
+
+2002.11054v2
+
+.
+
+🔍 6. Declarative Verification and Traceability
+
+MLIR includes:
+
+Declarative verifiers to check IR invariants and detect errors early.
+
+Location tracking to record where operations came from, improving transparency and auditability (critical for safety- or privacy-sensitive systems).
+
+This aids both debugging and secure compilation workflows
+
+2002.11054v2
+
+.
+
+🌍 7. Interoperability with Existing Systems
+
+MLIR can import/export to and from:
+
+LLVM IR
+
+TensorFlow graphs
+
+Custom accelerators and DSLs
+
+These mappings are expressed as dialects, allowing round-trip conversions and mixed-dialect pipelines without losing semantic information
+
+2002.11054v2
+
+.
+
+🧪 8. Wide Applicability and Community Adoption
+
+MLIR’s design generalizes across:
+
+Machine learning (TensorFlow, XLA)
+
+Polyhedral optimization (Affine dialect)
+
+HPC and Fortran (FIR)
+
+Domain-specific compilers (e.g., Lattice regression)
+
+This widespread adoption demonstrates MLIR’s practicality and flexibility across domains
+
+2002.11054v2
+
+.
+
+Summary Table
+Advantage	Description
+Extensibility	Easily define new dialects, ops, and passes.
+Progressive Lowering	Gradual abstraction transitions from high- to low-level IRs.
+Reusability	Shared infrastructure for multiple compilers and domains.
+Heterogeneous Support	Models CPUs, GPUs, TPUs, and accelerators uniformly.
+Semantic Retention	Keeps high-level semantics for longer optimization windows.
+Declarative Patterns	Simplifies op definition and transformation.
+Traceability & Validation	Built-in location tracking and declarative verification.
+Interoperability	Connects seamlessly to LLVM, TensorFlow, etc.
+
+Would you like me to include a visual diagram summarizing MLIR’s multi-level lowering stack (e.g., TensorFlow → Affine → LLVM → Hardware)? It’s a great way to quickly see how these advantages fit into the compilation flow.
+
+* * *
+
+**You:**
+
+So MLIR isn't built for ML?
+
+* * *
+
+**ChatGPT:**
+
+No — MLIR is not built specifically for machine learning, though its origins are closely tied to ML frameworks.
+
+According to the original MLIR: A Compiler Infrastructure for the End of Moore’s Law paper, the project began because modern ML frameworks (like TensorFlow, XLA, TensorRT, nGraph, Core ML, and TPU IR) were fragmented — each had its own compiler-like subsystem and incompatible intermediate representations. MLIR was created to unify and generalize these infrastructures, but it quickly evolved into a domain-agnostic compiler framework for any language or hardware domain
+
+2002.11054v2
+
+2002.11054v2
+
+.
+
+In other words:
+
+MLIR’s initial motivation was to clean up the ML ecosystem.
+
+But its design goal was much broader: to provide reusable compiler infrastructure for any abstraction level, from high-level DSLs to hardware-specific IRs.
+
+The paper explicitly highlights applications beyond ML — including Fortran optimization, polyhedral loop transformations, domain-specific compilers, and general-purpose language frontends like C++ and Swift
+
+2002.11054v2
+
+.
+
+So while MLIR was inspired by machine learning compiler needs, it is a general-purpose, multi-level compiler framework intended to serve all programming languages, domains, and hardware targets — not just ML.
+
+* * *
+
+**You:**
+
+Im confused about progressive lowering, don't other compilers also have many intermediate lowerings?
+
+* * *
+
+**ChatGPT:**
+
+That’s a great question — and it’s one that the MLIR authors anticipated. You’re right that traditional compilers already have multiple intermediate stages, but MLIR’s notion of progressive lowering is fundamentally different in both philosophy and flexibility.
+
+Here’s how:
+
+🧩 Traditional Compiler Pipelines: Fixed and Rigid
+
+Most compilers (like GCC or LLVM) already lower code through a fixed sequence of intermediate representations.
+For example, Clang lowers:
+
+nginx
+AST → LLVM IR → SelectionDAG → MachineInstr → MCInst
+
+
+These are hard-coded, global stages. Each stage is predefined, and compilers assume all code must flow through that same set of IRs. This makes the system rigid — it’s not easy to add a new domain-specific abstraction (like tensors or affine loops) without rewriting parts of the pipeline
+
+2002.11054v2
+
+.
+
+🔄 MLIR: Flexible, Fine-Grained, and Mixed-Level
+
+In contrast, MLIR introduces progressive lowering — a general mechanism that allows lowering code through arbitrary, composable abstraction levels, not a fixed hierarchy.
+
+From the paper:
+
+“The system should support progressive lowering, i.e. from the higher-level representation down to the lowest-level, with the lowering being performed in small steps along multiple abstraction levels”
+
+2002.11054v2
+
+.
+
+This means:
+
+You can introduce custom intermediate stages (e.g., Tensor → Affine → SCF → LLVM).
+
+Different parts of a program can exist at different abstraction levels in the same IR.
+
+You can lower selectively — e.g., tensor ops to affine loops while keeping function calls high-level.
+
+Each stage is represented as a dialect, which defines its own ops and semantics.
+
+So rather than “AST → LLVM → Assembly,” MLIR allows a continuum like:
+
+lua
+TensorFlow Dialect
+   ↓ (lower tensor algebra)
+Affine Dialect
+   ↓ (lower structured loops)
+SCF / Standard Dialect
+   ↓ (lower control flow)
+LLVM Dialect
+   ↓
+Machine Code
+
+
+Each lowering step is incremental, composable, and reversible in principle — the “progressive” part refers to doing this gradually and modularly.
+
+⚙️ Why This Matters
+
+This design:
+
+Preserves semantics longer — you don’t lose high-level meaning too early.
+
+Enables domain-specific optimizations (e.g., affine transformations before converting to LLVM).
+
+Simplifies experimentation — adding new dialects or reordering passes is cheap.
+
+Supports heterogeneous hardware — different dialects can target GPUs, FPGAs, or CPUs simultaneously.
+
+In short, MLIR replaces “one monolithic lowering pipeline” with a composable multi-dialect ecosystem, letting compiler developers define their own progressive lowering paths without hacking the core compiler
+
+2002.11054v2
+
+.
+
+Would you like me to show a diagram comparing Clang’s fixed pipeline vs MLIR’s progressive lowering flow? It helps visualize how MLIR lets multiple abstraction levels coexist and gradually reduce to machine code.
+
+* * *
+
+**You:**
+
+How does MLIR clean up or unify the ML ecosystem?
+
+* * *
+
+**ChatGPT:**
+
+Excellent question — this is the origin story of MLIR and one of the main motivations for its creation.
+Let’s unpack how MLIR unifies and cleans up the fragmented machine learning compiler ecosystem.
+
+🧠 1. The Problem: A Fragmented ML Stack
+
+Before MLIR, every major ML framework had its own compiler-like subsystem, each reinventing similar ideas but with incompatible infrastructure.
+From the paper’s Figure 1, the authors list:
+
+TensorFlow Graph, XLA HLO, TensorRT, nGraph, Core ML, TensorFlow Lite, NNAPI, TPU IR, LLVM IR, and many others
+
+2002.11054v2
+
+.
+
+Each of these:
+
+Defined its own IR (Intermediate Representation), with unique semantics and file formats.
+
+Reimplemented common compiler features (optimization passes, verification, scheduling, codegen).
+
+Had fragile interoperability — converting between them meant writing one-off translators.
+
+Made hardware targeting a nightmare: new accelerators required N × M conversions between frameworks and backends.
+
+As a result, the ML ecosystem suffered from:
+
+Duplicated effort across frameworks.
+
+Slow deployment to new hardware.
+
+Poor debugging and error reporting (“opaque” graph-level compilers).
+
+Divergent semantics for basic tensor operations.
+
+MLIR’s founders at Google (Chris Lattner, Mehdi Amini, Nicolas Vasilache, etc.) saw this firsthand when working on TensorFlow XLA and realized the situation was untenable.
+
+🧩 2. The Insight: All These Frameworks Are Just Compilers
+
+The key insight was that ML frameworks are really just compilers — they parse, optimize, and lower computation graphs to machine code (TPU, GPU, CPU, etc.).
+But instead of reinventing a compiler stack each time, what if there were a common compiler infrastructure that:
+
+Could model high-level tensor graphs.
+
+Support domain-specific abstractions.
+
+Lower progressively to device-specific IRs (like LLVM IR or SPIR-V).
+
+That’s what MLIR provides.
+
+🔄 3. The Solution: MLIR as a Shared, Multi-Level IR
+
+MLIR (Multi-Level Intermediate Representation) serves as a unifying intermediate layer between ML frameworks and hardware backends.
+
+🧱 Unified Abstraction Model
+
+MLIR represents computations as dialects — modular IR namespaces that capture specific abstractions:
+
+tf dialect → TensorFlow graphs
+
+mhlo/xla dialect → XLA ops
+
+tosa dialect → standardized tensor ops (for mobile)
+
+affine/scf dialects → loop and control-flow semantics
+
+llvm dialect → low-level codegen
+
+All these dialects live in one infrastructure and can be transformed, analyzed, or composed together.
+
+🔄 Progressive Lowering
+
+Frameworks can progressively lower their high-level ops (like tf.MatMul) into affine loops, then to LLVM, without writing custom pipelines.
+Instead of each framework defining its own lowering to C++ or CUDA kernels, MLIR provides a standard pipeline of reusable passes and conversion interfaces.
+
+🔗 Reusable Infrastructure
+
+MLIR includes:
+
+SSA-based IR core (like LLVM)
+
+Declarative rewrite engine (DRR)
+
+Pass manager, type system, verification
+
+Common utilities for shape inference, cost modeling, and location tracking
+
+These shared components replace dozens of ad-hoc systems in TensorFlow, XLA, and others.
+
+🌐 4. What This Achieved in Practice
+✅ TensorFlow → MLIR Integration
+
+TensorFlow’s entire graph representation was ported into MLIR (tf dialect).
+That allows direct lowering:
+
+css
+TensorFlow Graph
+   ↓
+TF Dialect (MLIR)
+   ↓
+MHLO / TOSA / Affine Dialects
+   ↓
+LLVM / SPIR-V Dialects
+   ↓
+Machine Code
+
+
+This unified stack enables reuse of passes (shape inference, constant folding, canonicalization) across all targets — from TPUs to TensorFlow Lite to XLA.
+
+✅ ONNX and External Frameworks
+
+ONNX, Glow, and TVM can map their ops into MLIR dialects, providing a common interchange format for the entire ecosystem
+
+2002.11054v2
+
+.
+
+✅ Heterogeneous Hardware Support
+
+Because MLIR natively supports nested regions and parallel constructs, vendors (e.g., Intel, AMD, NVIDIA, SiFive) can define dialects for their accelerators without re-implementing the full compiler stack.
+
+🚀 5. The Result: A Unified, Extensible ML Compiler Infrastructure
+Old Ecosystem (Pre-MLIR)	Unified MLIR Ecosystem
+Many disjoint compilers (XLA, TensorRT, Core ML, etc.)	Shared core infrastructure (MLIR)
+Each defines its own IR	Common dialect system
+Custom passes per framework	Reusable optimization passes
+Manual translations between IRs	Declarative conversions and lowering
+Hard to support new hardware	Dialect-based extensibility for new targets
+Limited debugging & diagnostics	Unified, SSA-based, inspectable IR
+💬 In short
+
+MLIR cleans up the ML ecosystem by:
+
+Unifying IRs across frameworks and hardware backends.
+
+Eliminating redundant compiler engineering efforts.
+
+Providing a shared, extensible infrastructure for graph-to-code translation.
+
+Enabling cross-framework optimization and interoperability.
+
+It turned the chaotic world of ML graph compilers into a coherent, layered architecture — one that’s not just for ML anymore, but now used in LLVM, IREE, CIRCT, TensorFlow Lite, and beyond.
+
+Would you like a visual flow diagram showing how MLIR connects TensorFlow/XLA/ONNX to LLVM and hardware targets? It helps clarify how it “sits in the middle” of the ML compiler stack.
+
+* * *
+
+**You:**
+
+Does MLIR work with PyTorch or Jax?
+
+* * *
+
+**ChatGPT:**
+
+Yes — MLIR does work with both PyTorch and JAX (though with varying levels of maturity and different integration paths). Here’s a breakdown of how each framework integrates with MLIR and what the ecosystem looks like.
+
+✅ PyTorch + MLIR
+Integration status
+
+There is a dedicated project called Torch‑MLIR which “aims to provide first-class compiler support from the PyTorch ecosystem to the MLIR ecosystem”. 
+GitHub
++2
+LLVM Discussion Forums
++2
+
+Torch-MLIR is used to map PyTorch (via e.g., TorchScript, FX, LazyTensorCore) into MLIR dialects, then lower further down the stack. 
+PyTorch Forums
++1
+
+There is also integration with IREE (an MLIR-based compiler/runtime) which supports PyTorch workflows. For example the IREE “guide for PyTorch” shows that PyTorch programs can be exported/AOT or JIT compiled using IREE, which uses MLIR under the hood. 
+iree.dev
+
+What this means in practice
+
+You can write a PyTorch model, use Torch-MLIR to transform it into MLIR (via the “torch” dialects) and then apply compiler passes, optimizations, lowering to hardware targets.
+
+The maturity is still evolving; some paths may require work, and vendor/back-end support may vary.
+
+If you want to target non-standard hardware or custom backends, this stack potentially simplifies things because you can leverage the MLIR infrastructure rather than build a new frontend for PyTorch.
+
+Limitations / caveats
+
+Being in “incubator” or early status: Torch-MLIR is “not yet part of any official LLVM release” according to its README. 
+GitHub
+
+The full pipeline from arbitrary PyTorch code → MLIR dialects → optimized backend is still an area of active development.
+
+Some functionality may be more stable for inference/export than training or dynamic-shape heavy workloads.
+
+✅ JAX + MLIR
+Integration status
+
+JAX internally uses MLIR dialects such as StableHLO and/or MHLO for lowering of array computations. For example, JAX documentation mentions 'jax.interpreters.mlir' and internal APIs for “make_ir_context” etc. 
+OpenXLA Project
++2
+Intel
++2
+
+The IREE project also supports JAX: the IREE “JAX guide” shows an API for extracting JAX models and compiling them via MLIR-based pipeline. 
+iree.dev
+
+There is a discussion from 2021 about supporting JAX through MLIR-HLO, indicating that bridging work has been ongoing. 
+Google Groups
+
+What this means in practice
+
+If you use JAX, you may export a function/model to StableHLO (an MLIR dialect) and then downstream tools can lower further via MLIR infrastructure.
+
+JAX’s backend stack (XLA, PJRT) is evolving to support more modular compilation and MLIR integration. For instance, the Intel blog states that JAX and other frameworks leverage MLIR and its subsets for efficient computation. 
+Intel
+
+So for JAX users targeting high-performance/hardware-specific compilation, MLIR is a viable path.
+
+Limitations / caveats
+
+The JAX → MLIR route may be less “plug-and-play” (for arbitrary models) compared to more mature paths, depending on hardware/back-end.
+
+As with PyTorch, full ecosystem support (all ops, dynamic shapes, training workloads) may still be catching up.
+
+🔍 Summary Table
+Framework	MLIR integration	Best use-case today	Things to watch
+PyTorch	Torch-MLIR + IREE support	Export/inference, custom back-ends	Training support, dynamic shapes, stability
+JAX	StableHLO + MLIR via XLA/IREE	High-performance, hardware translation	Breadth of op coverage, ease of export pipeline
+🤔 Should you use MLIR with these frameworks?
+
+If you are working on:
+
+targeting non-standard hardware (ASICs, custom accelerators) and you want a unified compiler infrastructure, MLIR is a strong candidate;
+
+building a production deployment where you want the compiler stack optimized for your backend, using the MLIR path can provide extra flexibility;
+
+just prototyping or using standard CPU/GPU backends with default tooling, you might not need MLIR explicitly (the standard frameworks still work fine).
+
+If you like, I can check the latest status (2025) of Torch-MLIR and JAX-MLIR integration (which ops are fully supported, which back-ends) and send you a comparison. Would you like that?
+
+* * *
+
+**You:**
+
+So MLIR was build for tensorflow correct?
+
+* * *
+
+**ChatGPT:**
+
+Exactly — yes, MLIR was originally built for TensorFlow, but with a much broader goal in mind.
+
+Here’s the historical and technical context straight from the paper and later design documents 👇
+
+🧩 1. Origin: TensorFlow’s Compiler Chaos
+
+MLIR was first developed inside Google around 2018–2019 by Chris Lattner (the original creator of LLVM and Swift) and colleagues including Mehdi Amini and Nicolas Vasilache.
+They were working on TensorFlow’s internal compiler infrastructure (particularly XLA and TPU codegen) and noticed a growing problem:
+
+“Modern machine learning frameworks are composed of many different compilers, graph technologies, and runtime systems… which did not share a common infrastructure or design point.”
+
+2002.11054v2
+
+TensorFlow at the time used multiple disconnected IRs:
+
+TensorFlow GraphDef (high-level dataflow graphs)
+
+XLA HLO (for optimization)
+
+TPU IR (for device code)
+
+TensorFlow Lite flatbuffers
+
+Core ML, NNAPI, etc. for deployment
+
+Each stage had its own compiler logic, verification, and serialization formats.
+So when TensorFlow engineers wanted to optimize across stages or target new hardware, they faced duplicated code, inconsistencies, and huge engineering cost.
+
+⚙️ 2. MLIR’s Initial Goal: Unify TensorFlow’s IRs
+
+Lattner’s proposal was to build a common, reusable compiler infrastructure that could express all those TensorFlow representations within one system.
+
+So yes — MLIR’s first real use case was:
+
+“To model TensorFlow’s internal representation and perform transformations … from algebraic optimizations to retargeting graphs for mobile deployment to generating native code using XLA.”
+
+2002.11054v2
+
+TensorFlow was the perfect testbed for MLIR because:
+
+It already used graph-based computation (which maps naturally to MLIR’s SSA and region structure).
+
+It needed to target many heterogeneous devices (CPU, GPU, TPU, DSP, NNAPI).
+
+It suffered heavily from redundant IRs and inconsistent codegen paths.
+
+🔄 3. Expansion Beyond TensorFlow
+
+However, Lattner designed MLIR not just as a TensorFlow compiler, but as a general compiler infrastructure — the LLVM for all higher-level IRs.
+From the introduction:
+
+“The MLIR project aims to directly tackle these programming language design and implementation challenges — by making it very cheap to define and introduce new abstraction levels.”
+
+2002.11054v2
+
+So while TensorFlow was the motivating example, the architecture was:
+
+Generic (no TensorFlow-specific semantics baked in),
+
+Extensible (anyone can define their own dialects),
+
+Reusable (for C++, Fortran, Rust, polyhedral, and domain-specific compilers).
+
+That’s why today MLIR is also used by:
+
+PyTorch → Torch-MLIR
+
+JAX → StableHLO / OpenXLA
+
+IREE (general MLIR-based runtime)
+
+CIRCT (hardware/RTL compilation)
+
+LLVM’s Clang (experimental mid-level IR “CIR”)
+
+🔍 4. In Short
+Question	Answer
+Was MLIR built for TensorFlow?	Yes — it was born inside Google to fix TensorFlow’s compiler fragmentation.
+Is MLIR only for TensorFlow?	No — it’s a general-purpose compiler infrastructure for any domain.
+What’s TensorFlow’s role now?	TensorFlow still uses MLIR (TF, TOSA, MHLO dialects) as its IR foundation for XLA, TF Lite, and TPU compilation.
+
+If you’d like, I can show you a diagram of the TensorFlow → MLIR → XLA pipeline, illustrating how TensorFlow’s graphs are progressively lowered through MLIR dialects into LLVM IR and device code — it visually makes this “unification” concept much clearer. Would you like me to include that?
+
+* * *
+
+**You:**
+
+What is the state of MLIR today? How often is it used versus other ML compilers?
+
+* * *
+
+**ChatGPT:**
+
+Short answer: MLIR is widely used under the hood across today’s ML stacks—but it isn’t the only game in town. It’s become the backbone for several major projects (and even some non-ML compilers), while popular end-user workflows still often go through XLA/OpenXLA, TensorRT, TVM/Relax, ONNX Runtime, or PyTorch Inductor.
+
+Where MLIR is used today (2024–2025 signals)
+
+OpenXLA / StableHLO. StableHLO—the “portable HLO” that bridges frameworks and compilers—ships with an MLIR-based implementation and is designed to be consumed by XLA and IREE. JAX exports to StableHLO and has long targeted MLIR HLO dialects in its lowers. 
+docs.jax.dev
++3
+GitHub
++3
+OpenXLA Project
++3
+
+Triton. The GPU kernel compiler used by PyTorch Inductor re-implemented its backend on MLIR (v2), and its IRs are now MLIR dialects. So even if your PyTorch path isn’t “MLIR end-to-end,” kernels often pass through MLIR via Triton. 
+arXiv
++3
+GitHub
++3
+PyTorch
++3
+
+PyTorch ↔ MLIR via Torch-MLIR. There’s an active bridge project (incubator status in LLVM) to translate PyTorch programs into MLIR dialects for downstream compilers like IREE. It’s real and evolving, but not the default runtime for most PyTorch users. 
+GitHub
++2
+iree.dev
++2
+
+IREE. An MLIR-native compiler/runtime that consumes StableHLO/Torch-MLIR and lowers to diverse backends (CPU, GPU, mobile, accelerators). 
+iree.dev
+
+ONNX-MLIR. A production-oriented compiler that lowers ONNX graphs using MLIR; actively releasing and presenting at LLVM events in 2025. 
+YouTube
++3
+GitHub
++3
+GitHub
++3
+
+Beyond ML (ecosystem health indicator). MLIR continues to expand in LLVM land (talks at 2025 LLVM dev meetings), shows up in language/compiler efforts, and is referenced in vendor toolchains (e.g., Triton, OpenXLA). 
+LLVM
++1
+
+Where MLIR is not the default “surface” you see
+
+PyTorch Inductor users typically interact with TorchDynamo/FX + Triton; MLIR is inside Triton, not necessarily your top-level IR. 
+PyTorch
+
+JAX users typically interact with JAX/PJRT/XLA; the interchange is StableHLO (on MLIR), but you don’t manipulate MLIR directly. 
+OpenXLA Project
++1
+
+ONNX Runtime / TensorRT / TVM have their own primary IRs and compiler flows, though interop (e.g., StableHLO or ONNX-MLIR) means you may still hit MLIR in some pipelines. 
+GitHub
+
+“How often” is it used vs other ML compilers?
+
+There isn’t a reliable market-share metric. Practically:
+
+As infrastructure: MLIR is very common—especially in OpenXLA/StableHLO, Triton, IREE, ONNX-MLIR, and across LLVM-adjacent efforts—so a lot of modern compilation paths touch MLIR even if users don’t see it. 
+GitHub
++4
+GitHub
++4
+PyTorch
++4
+
+As the user-facing default: Many production stacks still present XLA, TensorRT, TVM/Relax, or ONNX Runtime as the visible compiler. MLIR often powers pieces under the hood (e.g., via StableHLO or Triton) rather than being the primary UX.
+
+Bottom line
+
+State of MLIR (2025): healthy and growing, with deep adoption in core infrastructure (OpenXLA/StableHLO, Triton v2, IREE, ONNX-MLIR) and active development in LLVM. 
+LLVM Discussion Forums
++6
+OpenXLA Project
++6
+GitHub
++6
+
+Usage vs others: You’ll frequently use MLIR indirectly—especially in JAX and PyTorch GPU kernels—even if your top-level tool says “XLA,” “Inductor+Triton,” or “ONNX Runtime.” It’s the plumbing many paths now run through.
