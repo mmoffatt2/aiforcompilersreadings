@@ -1,0 +1,1120 @@
+**You:**
+
+2503.18292v1.pdf
+PDF
+Can you summarize this paper?
+
+* * *
+
+**ChatGPT:**
+
+Here’s a clear, concise summary of the paper you uploaded:
+
+Paper Summary: JENGA: Effective Memory Management for Serving LLM with Heterogeneity
+Problem
+
+Modern LLM architectures are no longer uniform. New models mix:
+
+Different embedding sizes (text, vision, Mamba/SSM states, cross-attention, etc.)
+
+Different token dependency patterns (full attention, sliding windows, last-token-only state, etc.)
+
+Existing systems like PagedAttention assume:
+
+Fixed-size KV embeddings
+
+Full-prefix dependencies
+
+These assumptions break for modern heterogeneous models, causing severe memory fragmentation and poor cache utilization, which lowers GPU throughput. 
+
+2503.18292v1
+
+Key Idea
+
+The paper introduces JENGA, a new GPU memory management framework that handles heterogeneity by redesigning how KV cache memory is allocated and evicted.
+
+JENGA solves two main challenges:
+
+Fragmentation from different embedding sizes
+
+Mismatched caching/eviction rules across layers
+
+Core Techniques
+1. Two-Level Memory Allocator
+
+Uses LCM (Least Common Multiple) of embedding sizes to choose a compatible large page size
+
+Each layer then subdivides large pages into small, type-specific pages
+
+Prevents external fragmentation and reduces internal waste via request-aware allocation
+
+This is conceptually similar to a slab allocator but customized using model structure knowledge. 
+
+2503.18292v1
+
+2. Prefix-Subset–Aware Caching
+
+JENGA introduces layer-specific cache policies through a unified API:
+
+Layers specify:
+
+Which tokens matter for cache hits
+
+How eviction priority is computed
+
+Handles:
+
+Full self-attention
+
+Sliding window attention
+
+Mamba/state-space layers
+
+Vision embeddings
+
+Cross-attention
+
+This enables:
+
+Balanced eviction across layers
+
+Aligned eviction (avoids partial prefix corruption)
+
+Implementation
+
+Implemented inside vLLM
+
+Requires no CUDA kernel changes
+
+Only modifies memory layout and metadata
+
+Results
+
+Compared to vLLM:
+
+Metric	Improvement
+GPU memory utilization	Up to +79.6%
+Throughput	Up to 4.92× (1.80× avg)
+Latency (low load)	No regression
+
+JENGA also:
+
+Handles vision-language models efficiently
+
+Improves speculative decoding performance
+
+Preserves performance for standard Transformer-only models 
+
+2503.18292v1
+
+Why It Matters
+
+JENGA modernizes KV cache management for:
+
+Multi-modal models
+
+Hybrid attention + SSM architectures
+
+Sparse / dynamic attention patterns
+
+It essentially upgrades PagedAttention to match today’s heterogeneous LLM reality.
+
+One-Sentence Takeaway
+
+JENGA is a heterogeneous-aware KV cache memory manager that uses LCM-based paging and customizable eviction policies to dramatically reduce fragmentation and improve GPU throughput for modern LLMs. 
+
+2503.18292v1
+
+If you’d like, I can also provide:
+
+A comparison table with PagedAttention
+
+A visual memory diagram
+
+Or a breakdown of how this relates to OS paging/slab allocators
+
+* * *
+
+**You:**
+
+Memory
+
+Can you explain further on how JENGA is optimizing vLLM for hybrid attention/SSM architectures
+
+* * *
+
+**ChatGPT:**
+
+Here’s a deeper systems-level explanation of how JENGA specifically optimizes vLLM for hybrid attention + SSM (e.g., Mamba/Jamba-style) architectures, focusing on memory behavior as you requested.
+
+I’ll tie everything directly to what changes compared to vanilla vLLM/PagedAttention and why that matters for hybrid models like Jamba, Hymba, etc. 
+
+2503.18292v1
+
+The Core Problem in Hybrid Attention + SSM Models
+
+Hybrid models mix two fundamentally different memory patterns:
+
+1. Attention layers (Transformer-style)
+
+Need KV cache per token
+
+Grows linearly with sequence length
+
+Small per-token state
+
+2. SSM / Mamba layers
+
+Do not need full history
+
+Use a large recurrent state
+
+Only the last token’s state matters
+
+What vLLM normally assumes
+
+vLLM (via PagedAttention) assumes:
+
+sql
+Every layer:
+  needs KV cache
+  same size
+  depends on full token prefix
+
+
+This completely breaks for hybrid models:
+
+Layer Type	True Behavior	vLLM Assumption
+Self-attention	Full prefix	✅ correct
+Sliding window	Window only	❌ over-allocates
+Mamba / SSM	Last token only	❌ stores full history
+How JENGA Fixes This in vLLM (Memory-Side)
+
+JENGA inserts a new memory manager underneath vLLM that understands layer heterogeneity.
+
+There are three key optimizations for hybrid architectures:
+
+1. LCM-Based Multi-Size KV Memory Layout
+Problem in vLLM
+
+vLLM forces one uniform page size.
+So for a model with:
+
+Attention KV per token = small
+
+Mamba per-layer state = large
+
+vLLM picks a large page size, forcing attention layers to waste tons of memory.
+
+Result: catastrophic fragmentation.
+
+JENGA’s fix: Two-Level LCM allocator
+
+JENGA chooses:
+
+sql
+Large page size = LCM(all embedding/state sizes)
+
+
+Example from the paper:
+
+yaml
+Vision token: 256B
+Text token:   384B
+LCM = 768B
+
+
+Then:
+
+sql
+Large page (768B):
+   → split into attention pages
+   → split into Mamba pages
+   → split into vision pages
+
+
+Now each layer gets tight packing.
+
+✅ Solves fragmentation
+✅ Preserves contiguous memory for kernels
+✅ No kernel rewrite needed 
+
+2503.18292v1
+
+2. Layer-Aware KV Retention (SSM-Aware Caching)
+Problem in Normal vLLM
+
+PagedAttention stores KV for every token, for every layer, forever.
+
+That means for Mamba layers:
+
+You store massive per-token state
+
+Even though only the latest one is ever used
+
+JENGA’s optimization for SSM layers
+
+JENGA allows each layer to define:
+
+python
+def update_last_access(...)
+def set_prefix_length(...)
+def get_possible_prefix(...)
+
+
+For Mamba layers, JENGA changes behavior:
+
+✅ Only cache checkpoint states periodically
+✅ Example: cache one state every 512 tokens
+✅ Only last cached token is marked "in-use"
+
+Result:
+
+css
+Instead of storing:
+  O(sequence_length × large_state)
+You now store:
+  O(sequence_length / 512 × large_state)
+
+
+This massively reduces VRAM footprint for SSM-heavy models. 
+
+2503.18292v1
+
+3. Prefix-Subset Dependency Handling
+
+Hybrid models don’t share the same notion of “needed history.”
+
+Layer	What it really needs
+Attention layer	All tokens
+Sliding window	Last k tokens
+Mamba / SSM	Last state only
+In vLLM:
+
+All layers treated as “requires everything.”
+
+In JENGA:
+
+Each layer declares its dependency window.
+
+This affects:
+
+What gets evicted
+
+What counts as a cache hit
+
+For SSM layers:
+
+Older states are aggressively evicted
+
+Only recent checkpoints protected
+
+This eliminates memory pressure from useless history. 
+
+2503.18292v1
+
+4. Request-Aware Large-Page Packing (Important for Hybrid)
+
+Hybrid models suffer badly from allocation/deallocation mismatch:
+
+Token KV grows per step
+
+Mamba state refreshed per step
+
+Freeing happens per-request
+
+vLLM interleaves different requests → fragmentation.
+
+JENGA’s fix:
+
+It assigns entire large pages per request whenever possible.
+
+So when a request finishes:
+
+✅ whole large pages are freed
+✅ hybrid KV + SSM memory disappears cleanly
+✅ prevents slow memory death spiral in multi-tenant scenarios
+
+This is especially valuable when SSM state is large. 
+
+2503.18292v1
+
+What This Means Practically for Hybrid Models
+
+For models like:
+
+Jamba
+
+Hymba
+
+Future Mamba + Transformer hybrids
+
+JENGA gives vLLM:
+
+✅ Compact KV layout
+✅ No over-allocation for SSM layers
+✅ Cache policies matched to real dependency patterns
+✅ Much higher batch sizes
+✅ Higher GPU utilization
+
+Which directly explains the observed:
+
+css
+Up to 4.9× throughput gains
+~80% less wasted KV memory
+
+Mental Model
+
+Plain vLLM:
+
+sql
+One page size
+Store KV for everything
+Treat all layers the same
+
+
+JENGA-enhanced vLLM for hybrid models:
+
+sql
+LCM super-pages
+Layer-specialized sub-allocators
+SSM-aware cache retention
+Prefix-subset eviction
+Request-aligned large pages
+
+One-line intuition
+
+JENGA turns vLLM from a “Transformer-only KV cache manager” into a heterogeneous memory OS that adapts its paging and eviction rules per layer, which is exactly what hybrid attention + SSM models require. 
+
+2503.18292v1
+
+If you want, I can next:
+
+Explain how this compares to how FlashAttention or PagedAttention behave on Mamba
+
+Or draw a memory diagram for attention + SSM side-by-side
+
+* * *
+
+**You:**
+
+Would JENGA be expendable beyond mambda style architectures or sliding window attention?
+
+* * *
+
+**ChatGPT:**
+
+Short answer: yes — and that’s actually one of JENGA’s strongest ideas.
+It’s not a “Mamba optimizer,” it’s a general KV/memory system for heterogeneous dependency graphs.
+
+Here’s how to think about its extensibility beyond Mamba and sliding-window attention, in a systems way.
+
+What JENGA Actually Generalizes
+
+JENGA is really solving two abstract problems:
+
+Heterogeneous tensor sizes
+
+Heterogeneous token-dependency graphs
+
+It exposes this through a generic interface:
+
+text
+update_last_access()
+set_prefix_length()
+get_possible_prefix()
+
+
+That means any layer whose memory needs can be described as:
+
+“I need this subset of past tokens, with this eviction priority”
+
+…can be plugged in.
+
+Classes of Architectures JENGA Already Generalizes To
+1. Sparse / Structured Attention (Beyond Sliding Window)
+
+Any attention mechanism that has non-uniform or sparse token access fits cleanly:
+
+Examples it can naturally handle:
+
+Mechanism	Why JENGA Works
+Strided attention	Each layer defines stride-based prefix subset
+Dilated attention	Dependency pattern encoded in get_possible_prefix()
+PyramidKV / token dropping	Eviction policy becomes structured by layer
+Block-sparse attention	Page subsets mapped to block ranges
+
+This is already demonstrated with PyramidKV-style token dropping in the paper.
+
+2. Cross-Attention Models (Encoder–Decoder)
+
+JENGA naturally handles separate memory pools per attention type:
+
+Examples where it fits well:
+
+Vision–language models (CLIP → LLM)
+
+Encoder–decoder Transformers
+
+Retrieval-augmented generation (document KV caches)
+
+Why it works:
+
+Different KV cache sizes handled by LCM pages
+
+Different eviction rules per modality
+
+3. Multi-Model / Multi-KV Systems (Speculative + Draft + MoE)
+
+JENGA already supports:
+
+Speculative decoding (small + large model KV coexistence)
+
+And it naturally extends to:
+
+System	Why It Fits
+Mixture-of-Experts (MoE)	Experts = separate memory classes
+Multi-pass reasoning	Each pass treated as different KV type
+Multi-agent LLM chains	Each agent can define its cache rules
+
+The LCM allocator can globally manage:
+
+css
+Model A KV sizes
+Model B KV sizes
+Vision embeddings
+Router states
+
+4. KV Pruning / Approximate Memory Systems
+
+JENGA pairs extremely well with:
+
+Dynamic KV pruning
+
+Cache compression
+
+Approximate memory
+
+Because JENGA already treats:
+
+arduino
+"required tokens" != "everything in history"
+
+
+Which is exactly the abstraction approximate/learned KV pruning needs.
+
+Where JENGA Would Really Shine Next (Not Explicitly in Paper)
+
+Here are realistic future extensions it naturally enables:
+
+✅ MoE Routing Cache Management
+
+MoE routing decisions depend on:
+
+token-class history
+
+expert activation history
+
+JENGA could manage:
+
+expert KV buffers
+
+router states
+
+per-expert eviction policies
+
+✅ Retrieval-Augmented Generation (RAG)
+
+You could define:
+
+Memory Type	Eviction Policy
+Prompt tokens	LRU by recency
+Retrieved docs	Priority by relevance
+Tool outputs	High cost to recompute
+
+JENGA already allows per-layer per-source policies, so RAG becomes a memory allocation problem, not a hack.
+
+✅ Long-Context External Memory Models
+
+For models that:
+
+page context to CPU/SSD
+
+cache “hot” tokens in GPU
+
+JENGA’s page table + LCM blocks make it very natural to extend to:
+
+hierarchical memory tiers (GPU → RAM → SSD)
+
+NUMA and NVLink-aware layouts
+
+Where JENGA Doesn’t Naturally Extend (Yet)
+
+There are limits:
+
+Case	Why It’s Hard
+Fully data-dependent execution graphs	JENGA assumes static layer structure
+Arbitrary control flow models	cache dependencies become dynamic
+Per-token adaptive compute	breaks simple prefix-subset abstraction
+
+That said, the authors explicitly design it to be kernel-agnostic but model-aware, so it’s still far more extensible than PagedAttention.
+
+Clean Mental Model
+
+A good way to frame JENGA:
+
+Old World	New World
+“KV cache = history”	“KV cache = memory graph”
+One page size	Multi-typed pages
+Uniform eviction	Layer-aware eviction
+One-Sentence Take
+
+JENGA isn’t a “Mamba optimization”—it’s a general GPU memory operating system for models with heterogeneous token-dependency graphs, and it can naturally extend to sparse attention, MoE, speculative decoding, multimodal models, and even retrieval-augmented or external-memory architectures.
+
+If helpful, I can also:
+
+Sketch how JENGA could manage MoE expert caches
+
+Or compare how it differs from virtual memory approaches like vAttention / Mooncake
+
+* * *
+
+**You:**
+
+draw a memory diagram for attention + SSM side-by-side
+
+* * *
+
+**ChatGPT:**
+
+Here’s a clean side-by-side memory diagram showing how attention layers vs SSM/Mamba layers behave in vLLM vs JENGA, so you can visually see what changes.
+
+1. vLLM / PagedAttention (Baseline)
+❌ How vLLM Treats Hybrid Models
+
+It assumes everything is Transformer-style KV cache, even for SSM layers:
+
+makefile
+Request timeline →
+Tokens:   T1    T2    T3    T4    T5    T6
+
+ATTENTION LAYER MEMORY (KV per token):
+[ KV1 ][ KV2 ][ KV3 ][ KV4 ][ KV5 ][ KV6 ]
+
+SSM / MAMBA LAYER MEMORY (WRONG APPROACH):
+[ ST1 ][ ST2 ][ ST3 ][ ST4 ][ ST5 ][ ST6 ]
+
+Legend:
+KV  = small per-token attention state
+ST  = huge Mamba state (should NOT repeat per token)
+
+Issue:
+- SSM state replicated per token ❌
+- Huge memory blow-up ❌
+
+
+This wastes VRAM and causes fragmentation.
+
+2. vLLM + JENGA (Hybrid-Aware)
+
+Now JENGA separates the memory models.
+
+✅ Attention Layers (KV grows per token)
+less
+ATTENTION (needs full history):
+
+Tokens:  T1    T2    T3    T4    T5    T6
+         ↓     ↓     ↓     ↓     ↓     ↓
+
+KV Cache:
+[ KV1 ][ KV2 ][ KV3 ][ KV4 ][ KV5 ][ KV6 ]
+
+
+This part stays basically the same.
+
+✅ SSM / Mamba Layers (state is sparse + periodic)
+
+Instead of per-token duplication:
+
+java
+SSM / MAMBA STATE MEMORY (JENGA):
+
+Checkpoint interval = 3 tokens
+
+Tokens:   T1    T2    T3    T4    T5    T6
+            ↓           ↓           ↓
+
+Stored states only:
+         [ ST3 ]        [ ST6 ]
+
+Runtime:
+Last active state = ST6
+Older states can be checkpointed or evicted
+
+
+✅ No full-history KV
+✅ Only periodic snapshots
+✅ Only last state used for compute
+
+3. How JENGA Physically Lays This Out in VRAM
+
+JENGA uses LCM-based large pages and type-specific subpages:
+
+sql
+GPU MEMORY (LCM Pages):
+
++------------------------------------------------------+
+|                     Large Page 0                     |
+|  +-----------+ +-----------+ +-----------+ +---------+ |
+|  | Attn KV   | | Attn KV   | | Mamba ST  | |  Mamba  | |
+|  | (small)   | | (small)   | | (large)   | | (large) | |
+|  +-----------+ +-----------+ +-----------+ +---------+ |
++------------------------------------------------------+
+
++------------------------------------------------------+
+|                     Large Page 1                     |
+|  +-----------+ +-----------+ +-----------+ +---------+ |
+|  | Attn KV   | | Attn KV   | | Mamba ST  | |  Mamba  | |
+|  +-----------+ +-----------+ +-----------+ +---------+ |
++------------------------------------------------------+
+
+
+LCM page = common multiple
+Each layer has its own sub-allocator inside each large page.
+
+4. Cache / Eviction Difference
+❌ vLLM Eviction
+bash
+Evict oldest tokens globally
+No idea which layers REALLY need them
+
+✅ JENGA Eviction
+markdown
+Attention layers:
+  - Protect full prefix
+
+SSM layers:
+  - Only protect last state
+  - Older checkpoints evicted aggressively
+
+5. Final Side-by-Side Summary
+Aspect	vLLM	JENGA
+Attention KV	✅ correct	✅ correct
+SSM state	❌ per-token replication	✅ periodic checkpoints
+Memory layout	Single page type	LCM + typed subpages
+Eviction	Uniform	Layer-aware
+Fragmentation	High	Minimal
+One-line intuition diagram
+less
+Before (vLLM):
+[KV][KV][KV][KV][KV][KV]
+[ST][ST][ST][ST][ST][ST]   ← totally wrong for SSM
+
+After (JENGA):
+[KV][KV][KV][KV][KV][KV]
+   [ST]     [ST]     [ST] ← sparse, correct storage
+
+
+If you want, I can also draw:
+
+Sliding window + attention side-by-side
+
+Or a 3-layer hybrid model memory stack diagram
+
+* * *
+
+**You:**
+
+Sketch how JENGA could manage MoE expert caches
+
+* * *
+
+**ChatGPT:**
+
+Below is a systems-level sketch of how JENGA could manage MoE (Mixture-of-Experts) expert caches using exactly the abstractions it already has.
+
+I’ll keep this focused on memory layout, routing, eviction, and scheduling — not ML theory.
+
+1. The Core MoE Problem (from a memory view)
+
+In MoE models, memory isn’t just:
+
+nginx
+Token → KV
+
+
+It’s:
+
+pgsql
+Token → Routed to Expert_i → Needs Expert_i state/cache
+
+
+So you now have multiple memory classes:
+
+Memory Type	Characteristics
+Shared attention KV	Per token, small
+Expert KV	Sparse, expert-specific
+Expert parameters	Large, relatively static
+Router state	Small but high-frequency
+
+The challenge:
+
+Different tokens hit different experts
+
+Memory access is sparse + dynamically routed
+
+Experts have very uneven access frequencies
+
+2. How JENGA Would Model MoE Memory
+
+JENGA already assumes:
+
+wasm
+Different layer types
+Different memory sizes
+Different eviction rules
+
+
+MoE plugs in very cleanly:
+
+markdown
+Memory "Layer Types" in JENGA:
+  - AttentionKV
+  - ExpertKV[expert_id]
+  - RouterState
+
+
+Each expert treated as a layer class.
+
+3. LCM Memory Layout for MoE
+
+JENGA’s LCM allocator would compute:
+
+scss
+LCM(
+  size(Attention KV),
+  size(Expert KV),
+  size(Router state)
+)
+
+
+Then memory becomes:
+
+less
+GPU MEMORY:
+
++-----------------------------------------------------------+
+|                     LCM Large Page                        |
+|                                                           |
+| [ Attn KV ][ Attn KV ][ Expert_3 ][ Expert_3 ][ Router ]  |
+| [ Expert_7 ][ Expert_7 ][ Attn KV ][ Expert_1 ][ Router ]  |
+|                                                           |
++-----------------------------------------------------------+
+
+
+Each expert gets its own sub-allocator.
+
+This naturally solves:
+✅ Per-expert memory fragmentation
+✅ Variable-size expert state
+
+4. Expert-Specific Caching Semantics
+
+Each expert can register custom cache logic:
+
+python
+class ExpertLayer(LayerSupportsPrefixCache):
+
+    def get_possible_prefix(...):
+        # define which tokens make sense to retain
+
+    def update_last_access(...):
+        # bump timestamps when expert is hit
+
+    def set_prefix_length(...):
+        # bias eviction for more/less useful tokens
+
+
+This is important because:
+
+Expert Memory	Eviction Logic
+Hot experts	Protect more
+Cold experts	Evict aggressively
+Speculative experts	Opportunistic caching
+5. Token Routing + Cache Mapping
+
+The router becomes part of memory management, not just compute.
+
+Runtime structure:
+
+csharp
+Token T
+   ↓
+Router
+   ↓
+Expert_i
+   ↓
+Request Expert_i KV page from JENGA
+
+
+JENGA tracks:
+
+nginx
+request_id
+expert_id
+token_id
+
+
+So layout becomes request-aware and expert-aware:
+
+less
+Large Page:
+[ Req42 / Expert3 ][ Req42 / Expert3 ][ Req17 / Expert1 ]
+
+
+This ensures locality.
+
+6. Eviction in MoE with JENGA
+
+Eviction becomes expert-aware + request-aware.
+
+Two-tier eviction:
+
+Tier 1: Within expert
+makefile
+Evict:
+  cold tokens
+  old prefix states
+
+Tier 2: Across experts
+sql
+If memory pressure:
+   select coldest expert
+   free its pages first
+
+
+This is something vLLM cannot model today.
+
+7. Sketch: MoE Memory Diagram (JENGA-Style)
+
+Here’s a visual sketch:
+
+less
+GPU Memory (LCM Pages):
+
++-------------------------------------------------------------+
+|                      Large Page 0                           |
+| [AttnKV][AttnKV][Expert_0][Expert_0][Router][Router]        |
++-------------------------------------------------------------+
+
++-------------------------------------------------------------+
+|                      Large Page 1                           |
+| [Expert_3][Expert_3][Expert_3][AttnKV][AttnKV][Router]      |
++-------------------------------------------------------------+
+
++-------------------------------------------------------------+
+|                      Large Page 2                           |
+| [Expert_7][Expert_7][AttnKV][Expert_1][Expert_1][Router]    |
++-------------------------------------------------------------+
+
+8. JENGA vs Existing MoE Memory Behavior
+Behavior	Current vLLM / Systems	JENGA + MoE
+Expert KV awareness	❌ No	✅ Yes
+Per-expert eviction	❌ No	✅ Yes
+Hot/cold expert bias	❌ No	✅ Native
+Multi-size memory	❌ Broken	✅ LCM managed
+9. How This Enables New Optimizations
+
+With this design, you can:
+
+Pre-reserve memory for hot experts
+
+Dynamically shrink cold expert footprints
+
+Cache expert-specific prefixes
+
+Speculatively allocate expert pages before routing decisions
+
+This makes MoE behave like:
+
+“Adaptive per-expert memory pools” instead of a global KV pool.
+
+10. One-Line Summary
+
+JENGA can treat each MoE expert like a first-class memory type, giving it custom page sizing, eviction semantics, and cache logic — turning MoE from a routing problem into a structured memory-management problem.
+
+If you want, I can next sketch:
+
+How this would look for DeepSeek-MoE / Mixtral
+
+Or show a timeline diagram of routing + caching
+
+* * *
+
+**You:**
+
+how does this differ from virtual memory approaches like vAttention / Mooncake
+
+* * *
+
+**ChatGPT:**
+
+Great question — this is exactly the right comparison to make.
+Here’s a clear systems-level contrast between JENGA-style memory management vs virtual-memory–based approaches like vAttention and Mooncake.
+
+TL;DR (One-liner)
+
+JENGA is a model-aware KV memory allocator; vAttention/Mooncake are model-agnostic virtual memory systems.
+JENGA changes what is allocated; VM-based systems change where it lives.
+
+What Virtual-Memory Approaches Do (vAttention / Mooncake)
+
+These systems treat KV cache like virtual memory:
+
+Core idea
+java
+GPU memory = cache
+CPU memory = backing store
+SSD/disk  = cold storage
+
+
+They build:
+
+Virtual address space for KV tensors
+
+Page tables
+
+On-demand page migration between tiers
+
+What they optimize
+Goal	How
+Fit long contexts	Offload cold KV pages
+Minimize GPU OOM	Swap pages to CPU / disk
+Preserve contiguity	Virtual → physical remapping
+Key property
+
+They are model-agnostic:
+
+They do NOT know which tokens are useful.
+
+They make decisions based on:
+
+LRU
+
+Access frequency
+
+Heuristics
+
+They treat all pages as semantically equal.
+
+What JENGA Does Instead
+
+JENGA does not target memory tiers.
+It assumes memory is still in GPU VRAM.
+
+JENGA’s core job is:
+
+Task	How
+Reduce fragmentation	Multi-size, LCM-based allocator
+Reduce useless memory	Layer-specific caching rules
+Improve hit rate	Prefix-subset logic
+
+It is model-aware:
+
+It knows which parts of the prefix matter per layer.
+
+Architectural Difference
+Virtual Memory Stack (vAttention / Mooncake)
+java
+LLM
+ ↓
+Virtual KV pages
+ ↓
+GPU VRAM (cache)
+ ↓
+CPU RAM (spill)
+ ↓
+Disk / NVMe
+
+JENGA Stack
+sql
+LLM
+ ↓
+Model-aware allocator
+ ↓
+LCM pages
+ ↓
+GPU VRAM only
+
+
+No paging to CPU/SSD — just smarter placement inside GPU.
+
+Key Difference Table
+Aspect	JENGA	vAttention / Mooncake
+Knows model structure?	✅ Yes	❌ No
+Custom eviction per layer?	✅ Yes	❌ No
+Cross-layer alignment?	✅ Yes	❌ No
+Multi-tier memory?	❌ No (GPU only)	✅ Yes
+Fragmentation control	✅ Proactive	❌ Reactive
+Goal	Better packing inside VRAM	Larger effective memory
+Think About It Like OS Concepts
+
+This analogy is very accurate:
+
+OS Layer	JENGA	vAttention / Mooncake
+Slab allocator	✅	❌
+Page table	❌	✅
+NUMA awareness	❌	✅
+Swap / disk paging	❌	✅
+
+JENGA behaves like:
+
+A kernel slab allocator optimized for a specific object graph (the model)
+
+vAttention/Mooncake behave like:
+
+A virtual memory subsystem with swapping
+
+Practical Result Differences
+JENGA shines when:
+
+✅ Model is heterogeneous
+✅ GPU memory is the bottleneck
+✅ You want bigger batch sizes
+✅ You don’t want PCIe/NVLink overhead
+
+VM-based systems shine when:
+
+✅ Contexts are too large for GPU
+✅ You must spill memory off device
+✅ Latency variance is acceptable
+
+The Two Are Complementary, Not Competing
+
+In fact, they stack very well:
+
+nginx
+JENGA inside GPU
+↓
+vAttention / Mooncake below GPU
+↓
+CPU / SSD
+
+
+You can:
+
+Use JENGA to tightly pack VRAM
+
+Use VM systems to handle overflow
+
+One-Sentence Summary
+
+JENGA optimizes how you allocate GPU memory based on model semantics, while vAttention and Mooncake optimize how you move KV memory across GPU/CPU/disk without understanding model semantics.
+
+Want a next-step visual?
+
+I can draw:
+
+A stacked JENGA + vAttention hybrid memory diagram
+
+Or a timeline chart of page faults vs fragmentation
